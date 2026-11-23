@@ -4,8 +4,5 @@
   "private": true,
   "scripts": {
     "build": "echo 'build done'"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.39.0"
   }
 }

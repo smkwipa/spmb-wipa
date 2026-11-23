@@ -1,9 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
-import crypto from "crypto";
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Dimas123";
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-
 const STATUS_LIST = ["Menunggu Verifikasi", "Terverifikasi", "Diterima", "Ditolak"];
 
 const SCHOOL = {
@@ -64,12 +58,26 @@ async function readBody(request) {
   try { return await request.json(); } catch { return {}; }
 }
 
+// Helper untuk memanggil Google Apps Script
+async function callGAS(env, payload) {
+  if (!env.GAS_URL) throw new Error("GAS_URL belum diatur di Environment Variables Cloudflare");
+  const res = await fetch(env.GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      secret: env.GAS_SECRET || "RAHASIA_SPMB_WP_2027",
+      ...payload
+    })
+  });
+  return await res.json();
+}
+
 // ===== ROUTES =====
 
-async function handleInfo() {
-  const { data: rows, error } = await supabase.from("pendaftar").select("jurusan1,status");
-  if (error) return json({ ok: false, pesan: error.message }, 500);
-  const all = rows || [];
+async function handleInfo(env) {
+  const res = await callGAS(env, { action: "getAll" });
+  if (!res.ok) return json({ ok: false, pesan: res.pesan }, 500);
+  const all = res.data || [];
   const jurusan = SCHOOL.jurusan.map(j => ({
     ...j,
     terisi: all.filter(p => p.status !== "Ditolak" && p.jurusan1 === j.kode).length
@@ -77,7 +85,7 @@ async function handleInfo() {
   return json({ ...SCHOOL, jurusan, totalPendaftar: all.length });
 }
 
-async function handleDaftar(request) {
+async function handleDaftar(request, env) {
   const b = await readBody(request);
   const teks = v => String(v || "").trim().slice(0, 300);
   const d = {
@@ -112,24 +120,19 @@ async function handleDaftar(request) {
   if (d.jurusan2 && (!kode.includes(d.jurusan2) || d.jurusan2 === d.jurusan1)) return json({ ok: false, pesan: "Pilihan jurusan 2 harus berbeda dari pilihan 1" }, 400);
   if (b.setuju !== true) return json({ ok: false, pesan: "Centang pernyataan kebenaran data" }, 400);
 
-  const { data: dup } = await supabase.from("pendaftar").select("nisn").eq("nisn", d.nisn).single();
-  if (dup) return json({ ok: false, pesan: "NISN sudah terdaftar. Gunakan menu Cek Status." }, 409);
-
-  const { count } = await supabase.from("pendaftar").select("*", { count: "exact", head: true });
   const tahun = SCHOOL.tahunAjaran.slice(0, 4);
-  const { data, error } = await supabase.from("pendaftar").insert([{
-    nomor: `SPMB-${tahun}-${String((count || 0) + 1).padStart(4, "0")}`,
-    status: "Menunggu Verifikasi",
-    ...d
-  }]).select().single();
+  const res = await callGAS(env, { action: "insert", tahun, data: d });
 
-  if (error) return json({ ok: false, pesan: error.message }, 500);
-  return json({ ok: true, nomor: data.nomor });
+  if (!res.ok) return json({ ok: false, pesan: res.pesan }, res.status || 500);
+  return json({ ok: true, nomor: res.nomor });
 }
 
-async function handleStatus(nomor) {
-  const { data, error } = await supabase.from("pendaftar").select("*").ilike("nomor", nomor).single();
-  if (error || !data) return json({ ok: false, pesan: "Nomor pendaftaran tidak ditemukan" }, 404);
+async function handleStatus(nomor, env) {
+  const res = await callGAS(env, { action: "getAll" });
+  if (!res.ok) return json({ ok: false, pesan: res.pesan }, 500);
+  const data = (res.data || []).find(p => p.nomor.toLowerCase() === nomor.toLowerCase());
+  if (!data) return json({ ok: false, pesan: "Nomor pendaftaran tidak ditemukan" }, 404);
+  
   const nj = k => (SCHOOL.jurusan.find(j => j.kode === k) || {}).nama || k;
   return json({
     ok: true,
@@ -145,17 +148,19 @@ async function handleStatus(nomor) {
   });
 }
 
-async function handleLogin(request) {
+async function handleLogin(request, env) {
   const { password } = await readBody(request);
-  if (password !== ADMIN_PASSWORD) return json({ ok: false, pesan: "Password salah" }, 401);
+  const adminPass = env.ADMIN_PASSWORD || "Dimas123";
+  if (password !== adminPass) return json({ ok: false, pesan: "Password salah" }, 401);
   const token = crypto.randomUUID();
   tokens.set(token, Date.now() + 12 * 3600 * 1000);
   return json({ ok: true, token });
 }
 
-async function handleGetPendaftar() {
-  const { data, error } = await supabase.from("pendaftar").select("*").order("created_at", { ascending: false });
-  if (error) return json({ ok: false, pesan: error.message }, 500);
+async function handleGetPendaftar(env) {
+  const res = await callGAS(env, { action: "getAll" });
+  if (!res.ok) return json({ ok: false, pesan: res.pesan }, 500);
+  
   const toCamel = p => ({
     id: p.id, nomor: p.nomor, nama: p.nama, nisn: p.nisn, nik: p.nik,
     tempatLahir: p.tempat_lahir, tanggalLahir: p.tanggal_lahir,
@@ -165,46 +170,48 @@ async function handleGetPendaftar() {
     jurusan1: p.jurusan1, jurusan2: p.jurusan2,
     status: p.status, createdAt: p.created_at
   });
-  return json({ ok: true, data: (data || []).map(toCamel), statusList: STATUS_LIST, jurusan: SCHOOL.jurusan });
+  
+  const sorted = (res.data || []).reverse().map(toCamel);
+  return json({ ok: true, data: sorted, statusList: STATUS_LIST, jurusan: SCHOOL.jurusan });
 }
 
-async function handleUpdateStatus(id, request) {
+async function handleUpdateStatus(id, request, env) {
   const { status } = await readBody(request);
   if (!STATUS_LIST.includes(status)) return json({ ok: false, pesan: "Status tidak valid" }, 400);
-  const { error } = await supabase.from("pendaftar").update({ status }).eq("id", id);
-  if (error) return json({ ok: false, pesan: error.message }, 500);
+  const res = await callGAS(env, { action: "updateStatus", id, status });
+  if (!res.ok) return json({ ok: false, pesan: res.pesan }, 500);
   return json({ ok: true });
 }
 
-async function handleDelete(id) {
-  const { error } = await supabase.from("pendaftar").delete().eq("id", id);
-  if (error) return json({ ok: false, pesan: error.message }, 500);
+async function handleDelete(id, env) {
+  const res = await callGAS(env, { action: "delete", id });
+  if (!res.ok) return json({ ok: false, pesan: res.pesan }, 500);
   return json({ ok: true });
 }
 
 // ===== MAIN HANDLER =====
 
 export async function onRequest(context) {
-  const { request, params } = context;
+  const { request, params, env } = context;
   const path = params.path || [];
   const method = request.method;
 
   try {
-    if (path[0] === "info" && method === "GET") return await handleInfo();
-    if (path[0] === "daftar" && method === "POST") return await handleDaftar(request);
-    if (path[0] === "status" && path[1] && method === "GET") return await handleStatus(path[1]);
-    if (path[0] === "admin" && path[1] === "login" && method === "POST") return await handleLogin(request);
+    if (path[0] === "info" && method === "GET") return await handleInfo(env);
+    if (path[0] === "daftar" && method === "POST") return await handleDaftar(request, env);
+    if (path[0] === "status" && path[1] && method === "GET") return await handleStatus(path[1], env);
+    if (path[0] === "admin" && path[1] === "login" && method === "POST") return await handleLogin(request, env);
     if (path[0] === "admin" && path[1] === "pendaftar" && !path[2] && method === "GET") {
       const err = auth(request); if (err) return err;
-      return await handleGetPendaftar();
+      return await handleGetPendaftar(env);
     }
     if (path[0] === "admin" && path[1] === "pendaftar" && path[2] && method === "PATCH") {
       const err = auth(request); if (err) return err;
-      return await handleUpdateStatus(path[2], request);
+      return await handleUpdateStatus(path[2], request, env);
     }
     if (path[0] === "admin" && path[1] === "pendaftar" && path[2] && method === "DELETE") {
       const err = auth(request); if (err) return err;
-      return await handleDelete(path[2]);
+      return await handleDelete(path[2], env);
     }
   } catch (e) {
     return json({ ok: false, pesan: e.message }, 500);
