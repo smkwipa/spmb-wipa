@@ -131,6 +131,7 @@ function detail(id) {
   const nj = k => (JUR.find(j => j.kode === k) || {}).nama || k || "-";
   const rows = [
     ["Nomor", p.nomor], ["Status", p.status], ["Nama", p.nama], ["NISN", p.nisn], ["NIK", p.nik],
+    ["Nilai Rata-rata", p.nilaiRata || "-"],
     ["TTL", p.tempatLahir + ", " + tgl(p.tanggalLahir)],
     ["Jenis Kelamin", p.jenisKelamin === "L" ? "Laki-laki" : "Perempuan"],
     ["Asal Sekolah", p.asalSekolah], ["Jurusan 1", nj(p.jurusan1)],
@@ -139,7 +140,19 @@ function detail(id) {
     ["Orang Tua/Wali", p.namaOrtu], ["HP/WA Ortu", p.hpOrtu],
     ["Waktu Daftar", new Date(p.createdAt).toLocaleString("id-ID")]
   ];
-  $("#modalBody").innerHTML = rows.map(([k, v]) => `<div class="info-row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join("");
+  const berkasHtml = `
+    <div class="info-row">
+      <span class="k">Berkas & Folder</span>
+      <span class="v" style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${p.linkKK ? `<a class="btn ghost small" href="${esc(p.linkKK)}" target="_blank" rel="noopener">📄 KK</a>` : ""}
+        ${p.linkAkta ? `<a class="btn ghost small" href="${esc(p.linkAkta)}" target="_blank" rel="noopener">📄 Akta</a>` : ""}
+        ${p.linkRapor ? `<a class="btn ghost small" href="${esc(p.linkRapor)}" target="_blank" rel="noopener">📄 Rapor</a>` : ""}
+        ${p.linkFoto ? `<a class="btn ghost small" href="${esc(p.linkFoto)}" target="_blank" rel="noopener">🖼️ Foto</a>` : ""}
+        ${p.linkFolder ? `<a class="btn primary small" href="${esc(p.linkFolder)}" target="_blank" rel="noopener">📁 Folder</a>` : ""}
+      </span>
+    </div>
+  `;
+  $("#modalBody").innerHTML = rows.map(([k, v]) => `<div class="info-row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join("") + berkasHtml;
   $("#overlay").hidden = false;
 }
 
@@ -148,8 +161,8 @@ $("#overlay").addEventListener("click", e => { if (e.target === e.currentTarget)
 document.addEventListener("keydown", e => { if (e.key === "Escape") $("#overlay").hidden = true; });
 
 $("#btnCsv").addEventListener("click", () => {
-  const head = ["Nomor", "Nama", "NISN", "NIK", "TempatLahir", "TanggalLahir", "JK", "AsalSekolah", "Alamat", "HP", "Email", "NamaOrtu", "HPortu", "Jurusan1", "Jurusan2", "Status", "WaktuDaftar"];
-  const baris = DATA.map(p => [p.nomor, p.nama, p.nisn, p.nik, p.tempatLahir, p.tanggalLahir, p.jenisKelamin, p.asalSekolah, p.alamat, p.hp, p.email, p.namaOrtu, p.hpOrtu, p.jurusan1, p.jurusan2, p.status, p.createdAt]);
+  const head = ["Nomor", "Nama", "NISN", "NIK", "NilaiRata", "TempatLahir", "TanggalLahir", "JK", "AsalSekolah", "Alamat", "HP", "Email", "NamaOrtu", "HPortu", "Jurusan1", "Jurusan2", "Status", "WaktuDaftar"];
+  const baris = DATA.map(p => [p.nomor, p.nama, p.nisn, p.nik, p.nilaiRata, p.tempatLahir, p.tanggalLahir, p.jenisKelamin, p.asalSekolah, p.alamat, p.hp, p.email, p.namaOrtu, p.hpOrtu, p.jurusan1, p.jurusan2, p.status, p.createdAt]);
   const csv = "\uFEFF" + [head, ...baris].map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));

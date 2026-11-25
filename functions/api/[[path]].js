@@ -18,7 +18,7 @@ const SCHOOL = {
     { kode: "BS", nama: "Busana", kuota: 36, ikon: "🧵", deskripsi: "Desain busana, pola, jahit, sampai custom made." },
     { kode: "KL", nama: "Kuliner", kuota: 72, ikon: "🍳", deskripsi: "Pengolahan makanan, pastry bakery, dan kewirausahaan kuliner." },
     { kode: "TO", nama: "Teknik Otomotif", kuota: 72, ikon: "🏍️", deskripsi: "Teknik dan bisnis sepeda motor: servis, tune-up, kelistrikan." },
-    { kode: "DKV", nama: "Desain Komunikasi Visual", kuota: 72, ikon: "🎨", deskripsi: "Desain grafis, ilustrasi digital, fotografi, dan konten kreatif." }
+    { kode: "DKV", nama: "Desain Komunikasi Visual", kuota: 36, ikon: "🎨", deskripsi: "Desain grafis, ilustrasi digital, fotografi, dan konten kreatif." }
   ],
   gelombang: [
     { nama: "Gelombang 1", waktu: "4 Januari – 27 Maret 2027", info: "Pendaftaran awal, pilihan jurusan masih lengkap" },
@@ -27,12 +27,12 @@ const SCHOOL = {
     { nama: "Daftar Ulang & MPLS", waktu: "12 – 17 Juli 2027", info: "Herregistrasi siswa diterima dan masa pengenalan sekolah" }
   ],
   syarat: [
-    "Fotokopi ijazah / Surat Keterangan Lulus SMP/MTs",
-    "Fotokopi rapor semester 1–5",
-    "Fotokopi Kartu Keluarga dan akta kelahiran",
-    "NISN aktif dan valid",
-    "Pas foto 3x4 terbaru (2 lembar)",
-    "Mengisi formulir online, lalu verifikasi berkas ke sekolah"
+    "Scan/Foto Rapor Semester 1–5 (untuk perhitungan nilai rata-rata)",
+    "Scan/Foto Kartu Keluarga (KK)",
+    "Scan/Foto Akta Kelahiran",
+    "NISN aktif dan valid (10 digit)",
+    "Pas foto 3x4 terbaru",
+    "Mengisi formulir & upload berkas online, lalu verifikasi fisik ke sekolah"
   ]
 };
 
@@ -58,7 +58,6 @@ async function readBody(request) {
   try { return await request.json(); } catch { return {}; }
 }
 
-// Helper untuk memanggil Google Apps Script
 async function callGAS(env, payload) {
   if (!env.GAS_URL) throw new Error("GAS_URL belum diatur di Environment Variables Cloudflare");
   const res = await fetch(env.GAS_URL, {
@@ -72,7 +71,35 @@ async function callGAS(env, payload) {
   return await res.json();
 }
 
-// ===== ROUTES =====
+function hitungKlasemen(allData) {
+  const hasil = {};
+  for (const j of SCHOOL.jurusan) {
+    const kandidat = allData
+      .filter(p => p.status !== "Ditolak" && p.jurusan1 === j.kode)
+      .map(p => ({
+        nomor: p.nomor,
+        nisn: p.nisn,
+        nama: p.nama,
+        asalSekolah: p.asal_sekolah,
+        nilaiRata: parseFloat(p.nilai_rata) || 0,
+        status: p.status,
+        createdAt: p.created_at
+      }))
+      .sort((a, b) => b.nilaiRata - a.nilaiRata || new Date(a.createdAt) - new Date(b.createdAt));
+
+    hasil[j.kode] = {
+      kode: j.kode,
+      nama: j.nama,
+      kuota: j.kuota,
+      totalPeminat: kandidat.length,
+      daftar: kandidat.slice(0, j.kuota).map((item, idx) => ({
+        peringkat: idx + 1,
+        ...item
+      }))
+    };
+  }
+  return hasil;
+}
 
 async function handleInfo(env) {
   const res = await callGAS(env, { action: "getAll" });
@@ -85,9 +112,18 @@ async function handleInfo(env) {
   return json({ ...SCHOOL, jurusan, totalPendaftar: all.length });
 }
 
+async function handleKlasemen(env) {
+  const res = await callGAS(env, { action: "getAll" });
+  if (!res.ok) return json({ ok: false, pesan: res.pesan }, 500);
+  const klasemen = hitungKlasemen(res.data || []);
+  return json({ ok: true, jurusan: SCHOOL.jurusan, klasemen });
+}
+
 async function handleDaftar(request, env) {
   const b = await readBody(request);
   const teks = v => String(v || "").trim().slice(0, 300);
+  const nilaiRata = parseFloat(b.nilaiRata);
+
   const d = {
     nama: teks(b.nama),
     nisn: teks(b.nisn),
@@ -102,13 +138,17 @@ async function handleDaftar(request, env) {
     nama_ortu: teks(b.namaOrtu),
     hp_ortu: teks(b.hpOrtu),
     jurusan1: teks(b.jurusan1),
-    jurusan2: teks(b.jurusan2)
+    jurusan2: teks(b.jurusan2),
+    nilai_rata: isNaN(nilaiRata) ? 0 : Number(nilaiRata.toFixed(2)),
+    files: b.files || {}
   };
+
   const hpOK = v => /^(?:\+62|62|0)8\d{7,11}$/.test(v);
   const kode = SCHOOL.jurusan.map(j => j.kode);
   if (d.nama.length < 3) return json({ ok: false, pesan: "Nama lengkap minimal 3 huruf" }, 400);
   if (!/^\d{10}$/.test(d.nisn)) return json({ ok: false, pesan: "NISN harus 10 digit angka" }, 400);
   if (!/^\d{16}$/.test(d.nik)) return json({ ok: false, pesan: "NIK harus 16 digit angka" }, 400);
+  if (isNaN(nilaiRata) || nilaiRata < 0 || nilaiRata > 100) return json({ ok: false, pesan: "Nilai rata-rata semester 1–5 harus antara 0 - 100" }, 400);
   if (!d.tempat_lahir || !d.tanggal_lahir) return json({ ok: false, pesan: "Tempat dan tanggal lahir wajib diisi" }, 400);
   if (!["L", "P"].includes(d.jenis_kelamin)) return json({ ok: false, pesan: "Pilih jenis kelamin" }, 400);
   if (d.asal_sekolah.length < 3) return json({ ok: false, pesan: "Asal sekolah wajib diisi" }, 400);
@@ -118,6 +158,7 @@ async function handleDaftar(request, env) {
   if (!hpOK(d.hp_ortu)) return json({ ok: false, pesan: "Nomor HP/WA orang tua tidak valid" }, 400);
   if (!kode.includes(d.jurusan1)) return json({ ok: false, pesan: "Pilihan jurusan 1 tidak valid" }, 400);
   if (d.jurusan2 && (!kode.includes(d.jurusan2) || d.jurusan2 === d.jurusan1)) return json({ ok: false, pesan: "Pilihan jurusan 2 harus berbeda dari pilihan 1" }, 400);
+  if (!d.files.kk || !d.files.akta || !d.files.rapor || !d.files.foto) return json({ ok: false, pesan: "Semua dokumen syarat (KK, Akta, Rapor, Pas Foto) wajib diunggah" }, 400);
   if (b.setuju !== true) return json({ ok: false, pesan: "Centang pernyataan kebenaran data" }, 400);
 
   const tahun = SCHOOL.tahunAjaran.slice(0, 4);
@@ -127,23 +168,37 @@ async function handleDaftar(request, env) {
   return json({ ok: true, nomor: res.nomor });
 }
 
-async function handleStatus(nomor, env) {
+async function handleStatus(query, env) {
   const res = await callGAS(env, { action: "getAll" });
   if (!res.ok) return json({ ok: false, pesan: res.pesan }, 500);
-  const data = (res.data || []).find(p => p.nomor.toLowerCase() === nomor.toLowerCase());
-  if (!data) return json({ ok: false, pesan: "Nomor pendaftaran tidak ditemukan" }, 404);
-  
+  const all = res.data || [];
+  const q = query.trim().toLowerCase();
+
+  const data = all.find(p =>
+    String(p.nomor || "").toLowerCase() === q ||
+    String(p.nisn || "").toLowerCase() === q
+  );
+  if (!data) return json({ ok: false, pesan: "ID Pendaftaran atau NISN tidak ditemukan" }, 404);
+
   const nj = k => (SCHOOL.jurusan.find(j => j.kode === k) || {}).nama || k;
+  const klasemen = hitungKlasemen(all);
+  const masukKlasemen = klasemen[data.jurusan1]?.daftar.find(x => x.nomor === data.nomor);
+
   return json({
     ok: true,
     data: {
       nomor: data.nomor,
+      nisn: data.nisn,
       nama: data.nama,
       asalSekolah: data.asal_sekolah,
+      nilaiRata: data.nilai_rata || "-",
       jurusan1: nj(data.jurusan1),
       jurusan2: data.jurusan2 ? nj(data.jurusan2) : "-",
       status: data.status,
-      tanggalDaftar: data.created_at
+      tanggalDaftar: data.created_at,
+      peringkatKlasemen: masukKlasemen
+        ? `Peringkat #${masukKlasemen.peringkat} (Masuk Kuota)`
+        : "Tidak Masuk Kuota / Tidak Terdaftar di Klasemen"
     }
   });
 }
@@ -160,7 +215,7 @@ async function handleLogin(request, env) {
 async function handleGetPendaftar(env) {
   const res = await callGAS(env, { action: "getAll" });
   if (!res.ok) return json({ ok: false, pesan: res.pesan }, 500);
-  
+
   const toCamel = p => ({
     id: p.id, nomor: p.nomor, nama: p.nama, nisn: p.nisn, nik: p.nik,
     tempatLahir: p.tempat_lahir, tanggalLahir: p.tanggal_lahir,
@@ -168,9 +223,13 @@ async function handleGetPendaftar(env) {
     alamat: p.alamat, hp: p.hp, email: p.email,
     namaOrtu: p.nama_ortu, hpOrtu: p.hp_ortu,
     jurusan1: p.jurusan1, jurusan2: p.jurusan2,
+    nilaiRata: p.nilai_rata,
+    linkKK: p.link_kk, linkAkta: p.link_akta,
+    linkRapor: p.link_rapor, linkFoto: p.link_foto,
+    linkFolder: p.link_folder,
     status: p.status, createdAt: p.created_at
   });
-  
+
   const sorted = (res.data || []).reverse().map(toCamel);
   return json({ ok: true, data: sorted, statusList: STATUS_LIST, jurusan: SCHOOL.jurusan });
 }
@@ -189,8 +248,6 @@ async function handleDelete(id, env) {
   return json({ ok: true });
 }
 
-// ===== MAIN HANDLER =====
-
 export async function onRequest(context) {
   const { request, params, env } = context;
   const path = params.path || [];
@@ -198,8 +255,9 @@ export async function onRequest(context) {
 
   try {
     if (path[0] === "info" && method === "GET") return await handleInfo(env);
+    if (path[0] === "klasemen" && method === "GET") return await handleKlasemen(env);
     if (path[0] === "daftar" && method === "POST") return await handleDaftar(request, env);
-    if (path[0] === "status" && path[1] && method === "GET") return await handleStatus(path[1], env);
+    if (path[0] === "status" && path[1] && method === "GET") return await handleStatus(decodeURIComponent(path[1]), env);
     if (path[0] === "admin" && path[1] === "login" && method === "POST") return await handleLogin(request, env);
     if (path[0] === "admin" && path[1] === "pendaftar" && !path[2] && method === "GET") {
       const err = auth(request); if (err) return err;

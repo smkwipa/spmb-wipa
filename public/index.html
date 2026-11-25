@@ -27,8 +27,8 @@
       <div class="titlebar">
         <div class="traffic">
           <button class="tl red" id="tlRed" type="button" title="Tutup"></button>
-          <button class="tl yellow" type="button" id="tlYellow" title="Minimize"></button>
-          <button class="tl green" type="button" id="tlGreen" title="Zoom"></button>
+          <button class="tl yellow" id="tlYellow" type="button" title="Minimize"></button>
+          <button class="tl green" id="tlGreen" type="button" title="Zoom"></button>
         </div>
         <div class="win-title" id="winTitle">Beranda — SPMB</div>
         <span class="win-badge">🎓</span>
@@ -41,6 +41,7 @@
           <button class="nav-item" data-page="alur">🗓️ Alur &amp; Syarat</button>
           <button class="nav-item" data-page="daftar">📝 Daftar Online</button>
           <button class="nav-item" data-page="cek">🔍 Cek Status</button>
+          <button class="nav-item" data-page="klasemen">🏆 Klasemen Jurusan</button>
           <div class="side-label">Lainnya</div>
           <a class="nav-item" href="/admin.html">⚙️ Admin</a>
           <a class="nav-item" href="https://www.smkwidyapraja.sch.id/" target="_blank" rel="noopener">🧭 Website Sekolah</a>
@@ -55,6 +56,7 @@
             <div class="cta-row">
               <button class="btn primary" data-page="daftar">📝 Daftar Sekarang</button>
               <button class="btn ghost" data-page="cek">🔍 Cek Status</button>
+              <button class="btn ghost" data-page="klasemen">🏆 Klasemen</button>
             </div>
             <div class="stats">
               <div class="stat"><b id="statPendaftar">0</b><span>Pendaftar Masuk</span></div>
@@ -89,7 +91,7 @@
 
           <section id="alur" class="page">
             <h2 class="sec">Alur &amp; Syarat Pendaftaran</h2>
-            <p class="sec-sub">Isi formulir online → dapat nomor pendaftaran → verifikasi berkas ke sekolah → pengumuman → daftar ulang.</p>
+            <p class="sec-sub">Isi formulir &amp; upload berkas online → dapat ID pendaftaran permanen → verifikasi berkas → pantau klasemen &amp; status.</p>
             <div class="alur-grid">
               <div class="card">
                 <h3>🗓️ Jadwal Gelombang</h3>
@@ -105,11 +107,12 @@
 
           <section id="daftar" class="page">
             <h2 class="sec">Formulir Pendaftaran</h2>
-            <p class="sec-sub" id="daftarIntro">Isi data dengan benar sesuai ijazah/akta. Setelah kirim, kamu langsung mendapat nomor pendaftaran.</p>
+            <p class="sec-sub" id="daftarIntro">Isi data dengan benar sesuai ijazah/akta, masukkan nilai rata-rata rapor semester 1–5, dan unggah berkas syarat. Setelah kirim, kamu langsung mendapat ID pendaftaran permanen.</p>
             <form id="formDaftar" class="form-grid">
               <div class="field full"><label>Nama Lengkap <em>*</em></label><input name="nama" required minlength="3" maxlength="80" placeholder="Nama sesuai ijazah"></div>
               <div class="field"><label>NISN <em>*</em></label><input name="nisn" required inputmode="numeric" pattern="\d{10}" maxlength="10" placeholder="10 digit angka"></div>
               <div class="field"><label>NIK <em>*</em></label><input name="nik" required inputmode="numeric" pattern="\d{16}" maxlength="16" placeholder="16 digit (lihat KK)"></div>
+              <div class="field"><label>Nilai Rata-rata Rapor (Semester 1–5) <em>*</em></label><input type="number" name="nilaiRata" step="0.01" min="0" max="100" required placeholder="Contoh: 86.50"></div>
               <div class="field"><label>Tempat Lahir <em>*</em></label><input name="tempatLahir" required placeholder="Contoh: Semarang"></div>
               <div class="field"><label>Tanggal Lahir <em>*</em></label><input type="date" name="tanggalLahir" required></div>
               <div class="field"><label>Jenis Kelamin <em>*</em></label>
@@ -126,36 +129,70 @@
               <div class="field"><label>Email</label><input type="email" name="email" placeholder="Opsional"></div>
               <div class="field"><label>Nama Orang Tua/Wali <em>*</em></label><input name="namaOrtu" required></div>
               <div class="field"><label>No. HP/WA Orang Tua <em>*</em></label><input type="tel" name="hpOrtu" required placeholder="08xxxxxxxxxx"></div>
-              <div class="field full"><label class="check"><input type="checkbox" name="setuju" required><span>Saya menyatakan data di atas benar dan siap mengikuti proses verifikasi SPMB SMK Widya Praja Ungaran.</span></label></div>
+
+              <div class="field"><label>Upload Kartu Keluarga (KK) <em>*</em></label><input type="file" name="fileKK" accept=".pdf,.jpg,.jpeg,.png" required></div>
+              <div class="field"><label>Upload Akta Kelahiran <em>*</em></label><input type="file" name="fileAkta" accept=".pdf,.jpg,.jpeg,.png" required></div>
+              <div class="field"><label>Upload Rapor Semester 1–5 <em>*</em></label><input type="file" name="fileRapor" accept=".pdf,.jpg,.jpeg,.png" required></div>
+              <div class="field"><label>Upload Pas Foto 3x4 <em>*</em></label><input type="file" name="fileFoto" accept=".jpg,.jpeg,.png" required></div>
+
+              <div class="field full"><label class="check"><input type="checkbox" name="setuju" required><span>Saya menyatakan data dan berkas yang diunggah benar serta siap mengikuti proses verifikasi SPMB SMK Widya Praja Ungaran.</span></label></div>
               <div class="field full"><button class="btn primary" id="btnDaftar" type="submit">Kirim Pendaftaran 🚀</button></div>
             </form>
+
             <div id="daftarResult" class="result" hidden>
               <div class="big">🎉</div>
               <h2 class="sec">Pendaftaran Berhasil!</h2>
-              <p class="sec-sub">Simpan nomor ini baik-baik untuk cek status dan verifikasi berkas.</p>
+              <p class="sec-sub">ID Pendaftaran ini bersifat <b>permanen</b>. Simpan atau salin ID berikut untuk mengecek status.</p>
               <div class="ticket">
-                <small>NOMOR PENDAFTARAN</small>
+                <small>ID PENDAFTARAN PERMANEN</small>
                 <div class="nomor" id="resNomor"></div>
+                <button class="btn ghost small" id="btnCopyId" type="button" style="margin: 6px 0 10px;">📋 Salin ID</button><br>
                 <small id="resNama"></small><br>
+                <small id="resNisn"></small><br>
                 <small id="resJurusan"></small>
               </div>
               <div class="cta-row center">
                 <button class="btn primary" id="btnCetak" type="button">🖨️ Cetak Bukti</button>
-                <button class="btn ghost" data-page="cek" type="button">🔍 Cek Status</button>
+                <button class="btn ghost" id="btnLangsungCek" type="button">🔍 Cek Status</button>
                 <button class="btn ghost" id="btnLagi" type="button">＋ Daftar Lagi</button>
               </div>
-              <div class="note">Langkah selanjutnya: bawa berkas persyaratan (ijazah/SKL, rapor, KK, akta, pas foto) ke sekolah untuk verifikasi. Lihat menu Alur &amp; Syarat.</div>
+              <div class="note">Langkah selanjutnya: simpan ID pendaftaran permanen kamu dan pantau status verifikasi berkas serta posisi klasemen jurusan.</div>
             </div>
           </section>
 
           <section id="cek" class="page">
             <h2 class="sec">Cek Status Pendaftaran</h2>
-            <p class="sec-sub">Masukkan nomor pendaftaran yang kamu dapat setelah mendaftar.</p>
+            <p class="sec-sub">Masukkan <b>ID Pendaftaran</b> (contoh: <code>SPMB-2027-0001</code>) atau <b>NISN</b> (10 digit) yang terdaftar.</p>
             <form id="formCek" class="cek-row">
-              <input id="cekNomor" required placeholder="Contoh: SPMB-2027-0001" autocomplete="off">
+              <input id="cekNomor" required placeholder="Masukkan ID Pendaftaran atau NISN…" autocomplete="off">
               <button class="btn primary" type="submit">Cek</button>
             </form>
             <div id="cekResult" class="card" hidden></div>
+          </section>
+
+          <section id="klasemen" class="page">
+            <h2 class="sec">Klasemen Per Jurusan</h2>
+            <p class="sec-sub">Diurutkan berdasarkan nilai rata-rata rapor semester 1–5. Hanya siswa dalam kuota (contoh: 1–36) yang tampil di klasemen; yang melebihi kuota tidak terdaftar di klasemen.</p>
+            <div class="toolbar" style="margin-top:0;">
+              <select id="selKlasemenJurusan"></select>
+              <button class="btn ghost small" id="btnRefreshKlasemen" type="button">🔄 Perbarui</button>
+            </div>
+            <div id="klasemenInfo" class="note" style="margin-bottom:14px;"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:70px;">No.</th>
+                    <th>NISN</th>
+                    <th>Nama</th>
+                    <th>Asal Sekolah</th>
+                    <th>Nilai Rata-rata (1–5)</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyKlasemen"></tbody>
+              </table>
+            </div>
           </section>
         </div>
       </div>
@@ -168,6 +205,7 @@
     <button class="dock-item di-alur" data-page="alur" data-label="Alur & Syarat">🗓️</button>
     <button class="dock-item di-daftar" data-page="daftar" data-label="Daftar">📝</button>
     <button class="dock-item di-cek" data-page="cek" data-label="Cek Status">🔍</button>
+    <button class="dock-item di-jurusan" data-page="klasemen" data-label="Klasemen">🏆</button>
     <span class="dock-sep"></span>
     <a class="dock-item di-admin" href="/admin.html" data-label="Admin">⚙️</a>
     <a class="dock-item di-web" href="https://www.smkwidyapraja.sch.id/" target="_blank" rel="noopener" data-label="Website Sekolah">🧭</a>

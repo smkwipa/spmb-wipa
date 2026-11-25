@@ -4,14 +4,16 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const tgl = s => { const d = new Date(s); return isNaN(d) ? s : d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }); };
 
 let INFO = null;
-let lastDaftar = null;
+let KLASEMEN_DATA = null;
+let lastDaftar = JSON.parse(localStorage.getItem("spmb_last_daftar") || "null");
 
 const titles = {
   beranda: "Beranda",
   jurusan: "Program Keahlian",
   alur: "Alur & Syarat",
   daftar: "Formulir Pendaftaran",
-  cek: "Cek Status"
+  cek: "Cek Status",
+  klasemen: "Klasemen Jurusan"
 };
 
 const stClass = {
@@ -25,6 +27,7 @@ function showPage(id) {
   $$(".page").forEach(p => p.classList.toggle("active", p.id === id));
   $$("[data-page]").forEach(el => el.classList.toggle("active", el.dataset.page === id));
   $("#winTitle").textContent = (titles[id] || "SPMB") + " — SPMB";
+  if (id === "klasemen" && !KLASEMEN_DATA) muatKlasemen();
   scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -38,6 +41,33 @@ $("#tlYellow")?.addEventListener("click", () => $(".window")?.classList.toggle("
 $("#tlGreen")?.addEventListener("click", () => $(".window")?.classList.toggle("zoomed"));
 
 const namaJurusan = k => (INFO?.jurusan?.find(j => j.kode === k) || {}).nama || k || "-";
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || file.size === 0) return reject(new Error("File belum dipilih"));
+    if (file.size > 2 * 1024 * 1024) return reject(new Error(`Ukuran file "${file.name}" melebihi 2 MB`));
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(",")[1];
+      resolve({ name: file.name, type: file.type, data: base64 });
+    };
+    reader.onerror = () => reject(new Error("Gagal membaca file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function tampilkanTiketPermanen(data) {
+  if (!data) return;
+  if ($("#resNomor")) $("#resNomor").textContent = data.nomor;
+  if ($("#resNama")) $("#resNama").textContent = `Nama: ${data.nama}`;
+  if ($("#resNisn")) $("#resNisn").textContent = `NISN: ${data.nisn}`;
+  if ($("#resJurusan")) {
+    $("#resJurusan").textContent = `Jurusan 1: ${data.jurusan1}` + (data.jurusan2 ? ` · Jurusan 2: ${data.jurusan2}` : "");
+  }
+  if ($("#formDaftar")) $("#formDaftar").hidden = true;
+  if ($("#daftarIntro")) $("#daftarIntro").hidden = true;
+  if ($("#daftarResult")) $("#daftarResult").hidden = false;
+}
 
 function renderInfo(info) {
   INFO = info;
@@ -99,17 +129,23 @@ function renderInfo(info) {
 
   const sel1 = $("#selJ1");
   const sel2 = $("#selJ2");
+  const selKlas = $("#selKlasemenJurusan");
   if (sel1 && sel2) {
     const prev1 = sel1.value;
     const prev2 = sel2.value;
     sel1.innerHTML = `<option value="">— Pilih Jurusan —</option>`;
     sel2.innerHTML = `<option value="">— Tidak ada —</option>`;
     (info.jurusan || []).forEach(j => {
-      sel1.add(new Option(`${j.kode} — ${j.nama}`, j.kode));
+      sel1.add(new Option(`${j.kode} — ${j.nama} (Kuota ${j.kuota})`, j.kode));
       sel2.add(new Option(`${j.kode} — ${j.nama}`, j.kode));
     });
     if (prev1) sel1.value = prev1;
     if (prev2) sel2.value = prev2;
+  }
+  if (selKlas && selKlas.options.length === 0) {
+    (info.jurusan || []).forEach(j => {
+      selKlas.add(new Option(`${j.kode} — ${j.nama} (Kuota ${j.kuota})`, j.kode));
+    });
   }
 }
 
@@ -124,17 +160,70 @@ async function muatInfo() {
   }
 }
 
+async function muatKlasemen() {
+  try {
+    const r = await fetch("/api/klasemen");
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) throw new Error(j.pesan || "Gagal memuat klasemen");
+    KLASEMEN_DATA = j.klasemen;
+    renderKlasemen();
+  } catch (err) {
+    toast(err.message, "err");
+  }
+}
+
+function renderKlasemen() {
+  if (!KLASEMEN_DATA) return;
+  const kode = $("#selKlasemenJurusan")?.value || "AK";
+  const k = KLASEMEN_DATA[kode];
+  if (!k) return;
+
+  $("#klasemenInfo").innerHTML = `Jurusan <b>${esc(k.nama)} (${esc(k.kode)})</b> · Kuota: <b>1–${k.kuota}</b> · Total Pendaftar: <b>${k.totalPeminat}</b>` +
+    (k.totalPeminat > k.kuota ? ` · <span style="color:#ff453a;font-weight:600;">${k.totalPeminat - k.kuota} pendaftar di luar kuota tidak masuk klasemen</span>` : "");
+
+  const tbody = $("#tbodyKlasemen");
+  if (!k.daftar || k.daftar.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">Belum ada pendaftar di jurusan ${esc(k.nama)}.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = k.daftar.map(item => `
+    <tr>
+      <td><b>${item.peringkat}</b></td>
+      <td class="mono">${esc(item.nisn)}</td>
+      <td><b>${esc(item.nama)}</b></td>
+      <td>${esc(item.asalSekolah)}</td>
+      <td><b>${Number(item.nilaiRata).toFixed(2)}</b></td>
+      <td><span class="st ${stClass[item.status] || "st-wait"}">${esc(item.status)}</span></td>
+    </tr>
+  `).join("");
+}
+
+$("#selKlasemenJurusan")?.addEventListener("change", renderKlasemen);
+$("#btnRefreshKlasemen")?.addEventListener("click", muatKlasemen);
+
 $("#formDaftar")?.addEventListener("submit", async e => {
   e.preventDefault();
   const btn = $("#btnDaftar");
-  if (btn) btn.disabled = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Mengunggah berkas…";
+  }
 
   try {
     const fd = new FormData(e.currentTarget);
+    const [kk, akta, rapor, foto] = await Promise.all([
+      fileToBase64(fd.get("fileKK")),
+      fileToBase64(fd.get("fileAkta")),
+      fileToBase64(fd.get("fileRapor")),
+      fileToBase64(fd.get("fileFoto"))
+    ]);
+
     const payload = {
       nama: fd.get("nama"),
       nisn: fd.get("nisn"),
       nik: fd.get("nik"),
+      nilaiRata: fd.get("nilaiRata"),
       tempatLahir: fd.get("tempatLahir"),
       tanggalLahir: fd.get("tanggalLahir"),
       jenisKelamin: fd.get("jenisKelamin"),
@@ -146,6 +235,7 @@ $("#formDaftar")?.addEventListener("submit", async e => {
       email: fd.get("email"),
       namaOrtu: fd.get("namaOrtu"),
       hpOrtu: fd.get("hpOrtu"),
+      files: { kk, akta, rapor, foto },
       setuju: fd.get("setuju") === "on"
     };
 
@@ -159,32 +249,47 @@ $("#formDaftar")?.addEventListener("submit", async e => {
 
     lastDaftar = {
       nomor: j.nomor,
+      nisn: payload.nisn,
       nama: payload.nama,
       jurusan1: namaJurusan(payload.jurusan1),
       jurusan2: payload.jurusan2 ? namaJurusan(payload.jurusan2) : ""
     };
 
-    if ($("#resNomor")) $("#resNomor").textContent = lastDaftar.nomor;
-    if ($("#resNama")) $("#resNama").textContent = `Nama: ${lastDaftar.nama}`;
-    if ($("#resJurusan")) {
-      $("#resJurusan").textContent = `Jurusan 1: ${lastDaftar.jurusan1}` + (lastDaftar.jurusan2 ? ` · Jurusan 2: ${lastDaftar.jurusan2}` : "");
-    }
+    localStorage.setItem("spmb_last_daftar", JSON.stringify(lastDaftar));
+    tampilkanTiketPermanen(lastDaftar);
 
-    e.currentTarget.hidden = true;
-    if ($("#daftarIntro")) $("#daftarIntro").hidden = true;
-    if ($("#daftarResult")) $("#daftarResult").hidden = false;
-    toast("Pendaftaran berhasil disimpan 🎉");
+    toast(`Pendaftaran berhasil! ID: ${j.nomor} 🎉`);
     muatInfo();
+    muatKlasemen();
   } catch (err) {
     toast(err.message, "err");
   } finally {
-    if (btn) btn.disabled = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Kirim Pendaftaran 🚀";
+    }
   }
+});
+
+$("#btnCopyId")?.addEventListener("click", () => {
+  if (!lastDaftar?.nomor) return;
+  navigator.clipboard.writeText(lastDaftar.nomor);
+  toast("ID Pendaftaran disalin 📋");
+});
+
+$("#btnLangsungCek")?.addEventListener("click", () => {
+  if (lastDaftar?.nomor && $("#cekNomor")) {
+    $("#cekNomor").value = lastDaftar.nomor;
+  }
+  showPage("cek");
+  $("#formCek")?.dispatchEvent(new Event("submit"));
 });
 
 $("#btnCetak")?.addEventListener("click", () => window.print());
 
 $("#btnLagi")?.addEventListener("click", () => {
+  localStorage.removeItem("spmb_last_daftar");
+  lastDaftar = null;
   const form = $("#formDaftar");
   if (form) {
     form.reset();
@@ -196,23 +301,26 @@ $("#btnLagi")?.addEventListener("click", () => {
 
 $("#formCek")?.addEventListener("submit", async e => {
   e.preventDefault();
-  const nomor = ($("#cekNomor")?.value || "").trim();
+  const query = ($("#cekNomor")?.value || "").trim();
   const box = $("#cekResult");
-  if (!nomor || !box) return;
+  if (!query || !box) return;
 
   try {
-    const r = await fetch("/api/status/" + encodeURIComponent(nomor));
+    const r = await fetch("/api/status/" + encodeURIComponent(query));
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.ok === false) throw new Error(j.pesan || "Data tidak ditemukan");
 
     const d = j.data;
     const badgeCls = stClass[d.status] || "st-wait";
     box.innerHTML = `
-      <div class="info-row"><span class="k">Nomor</span><span class="v mono"><b>${esc(d.nomor)}</b></span></div>
+      <div class="info-row"><span class="k">ID Daftar</span><span class="v mono"><b>${esc(d.nomor)}</b></span></div>
+      <div class="info-row"><span class="k">NISN</span><span class="v mono">${esc(d.nisn)}</span></div>
       <div class="info-row"><span class="k">Nama</span><span class="v">${esc(d.nama)}</span></div>
       <div class="info-row"><span class="k">Asal Sekolah</span><span class="v">${esc(d.asalSekolah)}</span></div>
+      <div class="info-row"><span class="k">Nilai Rata-rata</span><span class="v"><b>${esc(d.nilaiRata)}</b></span></div>
       <div class="info-row"><span class="k">Jurusan 1</span><span class="v">${esc(d.jurusan1)}</span></div>
       <div class="info-row"><span class="k">Jurusan 2</span><span class="v">${esc(d.jurusan2)}</span></div>
+      <div class="info-row"><span class="k">Klasemen</span><span class="v"><b>${esc(d.peringkatKlasemen)}</b></span></div>
       <div class="info-row"><span class="k">Tanggal Daftar</span><span class="v">${esc(tgl(d.tanggalDaftar))}</span></div>
       <div class="info-row"><span class="k">Status</span><span class="v"><span class="st ${badgeCls}">${esc(d.status)}</span></span></div>
     `;
@@ -224,4 +332,7 @@ $("#formCek")?.addEventListener("submit", async e => {
   }
 });
 
+if (lastDaftar) {
+  tampilkanTiketPermanen(lastDaftar);
+}
 muatInfo();
